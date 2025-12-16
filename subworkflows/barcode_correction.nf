@@ -22,6 +22,7 @@ process generate_whitelist{
               emit: shortlist_summary
     // TODO: change this to take precomputed, filtered counts from extract_barcodes
     script:
+        flags = params.correction_method == 'custom' ? '--method abundance --read_count 1' : ('--method quantile --exp_cells ' + meta['expected_cells'])
     // It doesn't make sense to do cell count thresholding of the shortlist for visium data.
     // A visium barcode is a tissue coordinate not a cell.
     def no_thresholding_opt = meta.kit.split(':')[0] == 'visium' ? '--no_cell_filter' : ""
@@ -31,8 +32,7 @@ process generate_whitelist{
     workflow-glue create_shortlist \
         barcodes "${meta.alias}.whitelist.tsv" shortlist_summary.tsv "${meta.alias}" \
         --counts \
-        ${method_opt} \
-        ${exp_cells_opt} \
+        ${flags} \
         --counts_out "high_qual_bc_counts.tsv" \
         --threads ${task.cpus} \
         ${no_thresholding_opt}
@@ -43,15 +43,16 @@ process generate_whitelist{
 process assign_barcodes{
     label "singlecell"
     cpus 1
-    memory "2 GB"
+    memory "76 GB"
     input:
          tuple val(meta),
                path("whitelist.tsv"),
+               path("high_qual_bc_counts.tsv"),
                path("extract_barcodes.tsv")
     output:
-        tuple val(meta),
-              path("bc_assign_counts.tsv"),
-              emit: chrom_assigned_barcode_counts
+        //tuple val(meta),
+        //      path("bc_assign_counts.tsv"),
+        //      emit: chrom_assigned_barcode_counts
         tuple val(meta),
               path("extract_barcodes_with_bc.tsv"),
               emit: tags
@@ -59,13 +60,9 @@ process assign_barcodes{
               path("summary.tsv"),
               emit: summary
     script:
+        cmd = params.correction_method == 'custom' ? "custom-barcode-correction.py --whitelist whitelist.tsv --tag-file extract_barcodes.tsv --umi-counts high_qual_bc_counts.tsv --method phred > extract_barcodes_with_bc.tsv" : "workflow-glue assign_barcodes whitelist.tsv extract_barcodes.tsv extract_barcodes_with_bc.tsv bc_assign_counts.tsv --max_ed ${params.barcode_max_ed} --min_ed_diff ${params.barcode_min_ed_diff} --use_kmer_index"
     """
-    workflow-glue assign_barcodes \
-        whitelist.tsv extract_barcodes.tsv \
-        extract_barcodes_with_bc.tsv bc_assign_counts.tsv summary.tsv \
-        --max_ed ${params.barcode_max_ed} \
-        --min_ed_diff ${params.barcode_min_ed_diff} \
-        --use_kmer_index
+    $cmd
     """
 }
 
